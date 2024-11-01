@@ -5,7 +5,7 @@ use crate::path::Path;
 mod loader;
 
 use axum::{
-    body::Bytes, extract::{multipart::Field, path, Multipart, State}, http::StatusCode, response::{IntoResponse, Response}, routing::{get, put}, Router
+    body::{Body, Bytes}, extract::{multipart::Field, path, Multipart, State}, http::StatusCode, response::{IntoResponse, Response}, routing::{get, put}, Router
 };
 use loader::{in_memory_loader::InMemoryLoader, loader_trait::Loader};
 use tokio::sync::Mutex;
@@ -34,10 +34,15 @@ async fn load_file(name : &String, loader : &mut InMemoryLoader<Bytes>) -> Optio
 }
 
 // basic handler that responds with a static string
-async fn on_get_handler(Path(path) : Path<String>, State(state) : State<Arc<Mutex<InMemoryLoader<Bytes>>>>) -> Result<Response, (StatusCode, String)> {
+async fn on_get_handler(Path(path) : Path<String>, State(state) : State<Arc<Mutex<InMemoryLoader<Bytes>>>>) -> Result<impl IntoResponse, (StatusCode, String)> {
   println!("GET called on {}", path);
   if let Some(response) = load_file(&path, &mut *state.lock().await).await {
-    Ok(response.into_response())
+    println!("Returning response");
+    Ok(Response::builder()
+    .status(StatusCode::OK)
+    .header("Content-Type", "video/mp4")
+    .body(Body::from(response))
+    .unwrap())
   }
   else {
     Err((StatusCode::NOT_FOUND, format!("{} not found on server", &path)))
@@ -50,8 +55,11 @@ async fn handle_field(field : Field<'_>, path : &str, file_count : i32, file_han
     return;
   }
   
-  let filename = field.file_name().map(|name| name.to_string()).unwrap_or_else(|| format!("file{}", file_handler.len()));
-  println!("Saving file {} to path {}", filename, path);
+  let content_type = field.content_type().unwrap_or("video/mp4");
+
+  if content_type != "video/mp4" {
+    return;
+  }
 
   // Read the field’s data bytes
   match field.bytes().await {
@@ -59,7 +67,7 @@ async fn handle_field(field : Field<'_>, path : &str, file_count : i32, file_han
       file_handler.save(&path.to_string(), data);
     }
     Err(e) => {
-      println!("Error reading bytes for file {}: {}", file_count, e);
+      println!("Error reading bytes for file {}: {:?}", file_count, e);
     }
   }
 }
