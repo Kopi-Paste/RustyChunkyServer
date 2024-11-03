@@ -2,11 +2,11 @@ use std::collections::HashMap;
 
 use axum::body::Bytes;
 
-use super::loader_trait::Loader;
+use super::{loader_trait::Loader, saved_file::SavedFile};
 
 #[derive(Clone)]
 pub struct InMemoryLoader  {
-    storage : HashMap<String, Vec<u8>>
+    storage : HashMap<String, SavedFile>
 }
 
 impl Loader for InMemoryLoader {
@@ -18,16 +18,18 @@ impl Loader for InMemoryLoader {
         self.storage.contains_key(name)
     }
 
-    fn save(&mut self, path : &String, data : Bytes) {
+    fn save(&mut self, path : &String, data : Bytes, mime_type : String) {
         if !self.exists(path) {
-            self.storage.insert(path.clone(), Vec::new());
+            self.storage.insert(path.clone(), SavedFile::new(data, mime_type));
+            return;
         }
 
-        self.storage.get_mut(path).unwrap().extend( data.to_vec());
+        let existing_data = self.storage.get_mut(path).unwrap();
+        existing_data.extend( data);
     }
 
-    fn load(&mut self, name : &String) -> Bytes {
-        Bytes::from(self.storage.get(name).unwrap_or(&Vec::new()).clone())
+    fn load(&self, name : &String) -> Option<&SavedFile> {
+        return self.storage.get(name);
     }
 
     fn len(&self) -> usize {

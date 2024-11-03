@@ -10,3 +10,5 @@ tower = "0.5.1"
 serde = { version = "1.0.214", features = ["derive"] }
 tracing-subscriber = "0.3.18"
 futures = "0.3.31"
+tokio-stream = "0.1.16"
+async-stream = "0.3.6"

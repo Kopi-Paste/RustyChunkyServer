@@ -4,13 +4,14 @@ use crate::path::Path;
 
 mod loader;
 
-use axum::{
-    body::{to_bytes, Body, BodyDataStream, Bytes}, extract::{path, State}, http::{HeaderValue, StatusCode}, response::{IntoResponse, Response}, routing::{get, put}, Router
-};
-use futures::StreamExt;
-use loader::{in_memory_loader::InMemoryLoader, loader_trait::Loader};
-use tokio::sync::Mutex;
+use async_stream::stream;
 
+use axum::{
+    body::{to_bytes, Body, BodyDataStream, Bytes}, extract::{path, State}, http::{Error, HeaderMap, HeaderValue, Response, StatusCode}, response::IntoResponse, routing::{get, put}, Router
+};
+use futures::{stream, StreamExt};
+use loader::{in_memory_loader::InMemoryLoader, loader_trait::Loader};
+use tokio::sync::{Mutex, mpsc};
 
 #[tokio::main]
 async fn main() {
@@ -34,29 +35,37 @@ async fn main() {
 // basic handler that responds with a static string
 async fn on_get_handler(Path(path) : Path<String>, State(state) : State<Arc<Mutex<InMemoryLoader>>>) -> Result<impl IntoResponse, (StatusCode, String)> {
   println!("GET called on {}", path);
-
-  let loader = &mut *state.lock().await;
+  let state_clone = state.clone();
+  let loader = state.lock().await;
 
   if !loader.exists(&path) {
-    return Err((StatusCode::NOT_FOUND, format!("{} not found on server", &path)))
+    return Err((StatusCode::NOT_FOUND, format!("Path {} does not exist", path)));
   }
 
-  let response = loader.load(&path);
-  println!("Returning response");
-    Ok(Response::builder()
+  let mime = loader.load(&path).unwrap().get_mime().clone();
+
+  let stream = stream! {
+    for chunk in state_clone.lock().await.load(&path).unwrap().get_data().chunks(1024) {
+      yield Ok::<_, Error>(Bytes::copy_from_slice(chunk));
+    }
+  };
+
+  Ok(Response::builder()
     .status(StatusCode::OK)
-    .header("Content-Type", "video/mp4")
-    .body(Body::from(response))
+    .header("Content-Type", mime)
+    .header("Transfer-Encoding", "chunked")
+    .body(Body::from_stream(stream))
     .unwrap())
 }
 
-async fn on_put_handler(Path(path) : Path<String>, State(state) : State<Arc<Mutex<InMemoryLoader>>>, mut payload : Body) -> Result<impl IntoResponse, (StatusCode, String)> {
+async fn on_put_handler(Path(path) : Path<String>, State(state) : State<Arc<Mutex<InMemoryLoader>>>, headers : HeaderMap, payload : Body) -> Result<impl IntoResponse, (StatusCode, String)> {
   println!("PUT called on {}", path);
   let mut stream = payload.into_data_stream();
+  let mime_type = headers.get("Content-Type").map_or("text/plain", |header| header.to_str().unwrap());
   while let Some(chunk) = stream.next().await {
     match chunk {
       Ok(data) => {
-        state.lock().await.save(&path.to_string(), data);
+        state.lock().await.save(&path.to_string(), data, mime_type.to_string());
       }
       Err(e) => {
         println!("Error: {}", e);
