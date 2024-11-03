@@ -44,8 +44,8 @@ async fn on_get_handler(Path(path) : Path<String>, State(state) : State<Arc<RwLo
   let stream = stream! {
     let mut sent_bytes = 0 as usize;
     let chunk_size = 8192 as usize;
-    let loader = state_clone.read().await;
     loop {
+      let loader = state_clone.read().await;
       if let Some(data) = loader.load(&path) {
         let len = data.read().await.get_data().len();
         if sent_bytes + chunk_size > len {
