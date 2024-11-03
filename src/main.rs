@@ -2,7 +2,7 @@ use std::{sync::Arc, usize};
 use crate::path::Path;
 use async_stream::stream;
 use axum::{
-    body::{Body, Bytes}, extract::{path, State}, http::{Error, HeaderMap, Response, StatusCode}, response::IntoResponse, routing::{get, put}, Router
+    body::{Body, Bytes}, extract::{path, State}, http::{Error, HeaderMap, Response, StatusCode}, response::IntoResponse, routing::{delete, get, put}, Router
 };
 use futures::StreamExt;
 use loader::{in_memory_loader::InMemoryLoader, loader_trait::Loader};
@@ -23,6 +23,7 @@ async fn main() {
         .route("/*path", get(on_get_handler))
         // `POST /users` goes to `create_user`
         .route("/*path", put(on_put_handler))
+        .route("/*path", delete(on_delete_handler))
         .with_state(shared_state);
     // run our app with hyper, listening globally on port 3000
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
@@ -99,4 +100,14 @@ async fn on_put_handler(Path(path) : Path<String>, State(state) : State<Arc<RwLo
     }
   }
   Ok(())
+}
+
+async fn on_delete_handler(Path(path) : Path<String>, State(state) : State<Arc<RwLock<InMemoryLoader>>>) -> Result<impl IntoResponse, (StatusCode, String)> {
+  println!("DELETE called on {}", path);
+  if state.write().await.delete(&path) {
+    Ok(())
+  }
+  else {
+    Err((StatusCode::NOT_FOUND, format!("Path {} was not found", path)))
+  }
 }

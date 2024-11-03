@@ -25,6 +25,10 @@ impl Loader for InMemoryLoader {
     }
 
     fn load(&self, name : &String) -> Option<&SavedFile> {
-        return self.storage.get(name);
+        self.storage.get(name)
+    }
+
+    fn delete(&mut self, name : &String) -> bool {
+        self.storage.remove(name).is_some()
     }
 }

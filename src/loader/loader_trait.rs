@@ -6,4 +6,5 @@ pub trait Loader {
     fn insert_new(&mut self, name : &String, mime : &String);
     fn get_mut(&mut self, name : &String) -> Option<&mut SavedFile>;
     fn load(&self, name : &String) -> Option<&SavedFile>;
+    fn delete(&mut self, name : &String) -> bool;
 }
