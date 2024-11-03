@@ -19,12 +19,11 @@ async fn main() {
 
     // build our application with a route
     let app = Router::new()
-        // `GET /` goes to `root`
         .route("/*path", get(on_get_handler))
-        // `POST /users` goes to `create_user`
         .route("/*path", put(on_put_handler))
         .route("/*path", delete(on_delete_handler))
         .with_state(shared_state);
+
     // run our app with hyper, listening globally on port 3000
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
     axum::serve(listener, app).await.unwrap();
@@ -40,23 +39,20 @@ async fn on_get_handler(Path(path) : Path<String>, State(state) : State<Arc<RwLo
     return Err((StatusCode::NOT_FOUND, format!("Path {} does not exist", path)));
   }
 
-  let mime = loader.load(&path).unwrap().get_mime().clone();
-
-  drop(loader);
+  let mime = loader.load(&path).unwrap().read().await.get_mime().clone();
 
   let stream = stream! {
     let mut sent_bytes = 0 as usize;
     let chunk_size = 8192 as usize;
+    let loader = state_clone.read().await;
     loop {
-      let read_lock = state_clone.read().await;
-      if let Some(data) = read_lock.load(&path) {
-        let file_data = data.get_data();
-        let len = file_data.len();
+      if let Some(data) = loader.load(&path) {
+        let len = data.read().await.get_data().len();
         if sent_bytes + chunk_size > len {
-          yield Ok::<_, Error>(Bytes::copy_from_slice(&file_data[sent_bytes..len]));
+          yield Ok::<_, Error>(Bytes::copy_from_slice(&data.read().await.get_data()[sent_bytes..len]));
           break;
         }
-        yield Ok::<_, Error>(Bytes::copy_from_slice(&file_data[sent_bytes..sent_bytes + chunk_size]));
+        yield Ok::<_, Error>(Bytes::copy_from_slice(&data.read().await.get_data()[sent_bytes..sent_bytes + chunk_size]));
         sent_bytes += chunk_size;
       }
       else {
@@ -85,9 +81,9 @@ async fn on_put_handler(Path(path) : Path<String>, State(state) : State<Arc<RwLo
   while let Some(chunk) = stream.next().await {
     match chunk {
       Ok(data) => {
-        let mut writing_lock_guard = state.write().await;
-        if let Some(modified_entry) = writing_lock_guard.get_mut(&path) {
-          modified_entry.extend(data);
+        let writing_lock_guard = state.read().await;
+        if let Some(modified_entry) = writing_lock_guard.load(&path) {
+          modified_entry.write().await.extend(data);
         }
         else {
           return Err((StatusCode::GONE, "Uploaded path was deleted".to_string()));
