@@ -1,31 +1,41 @@
-use std::collections::HashMap;
-
 use tokio::sync::RwLock;
+
+use crate::trie::trie::Trie;
 
 use super::{loader_trait::Loader, saved_file::SavedFile};
 
 pub struct InMemoryLoader  {
-    storage : HashMap<String, RwLock<SavedFile>>
+    storage : Trie<char, RwLock<SavedFile>>
+}
+
+macro_rules! as_slice {
+    ($x:expr) => {
+        &$x.chars().collect::<Vec<_>>()[..]
+    };
 }
 
 impl Loader for InMemoryLoader {
     fn init() -> Self {
-        InMemoryLoader { storage : HashMap::new() }
+        InMemoryLoader { storage : Trie::init() }
     }
 
     fn exists(&self, name : &String) -> bool {
-        self.storage.contains_key(name)
+        self.storage.contains(as_slice!(name))
     }
 
     fn insert_new(&mut self, name : &String, mime : &String) {
-        self.storage.insert(name.clone(), RwLock::new(SavedFile::new(Vec::new(), mime.clone())));
+        self.storage.insert(as_slice!(name), RwLock::new(SavedFile::new(Vec::new(), mime.clone())));
     }
 
     fn load(&self, name : &String) -> Option<& RwLock<SavedFile>> {
-        self.storage.get(name)
+        self.storage.get_for_string(as_slice!(name))
     }
 
-    fn delete(&mut self, name : &String) -> bool {
-        self.storage.remove(name).is_some()
+    fn delete(&mut self, name : &String) {
+        self.storage.delete(as_slice!(name))
+    }
+    
+    fn get_keys_for_prefix(&self, prefix : &String) -> Vec<String> {
+        self.storage.get_keys_for_prefix(as_slice!(prefix)).iter().map(|str| String::from_iter(str.iter())).collect()
     }
 }
