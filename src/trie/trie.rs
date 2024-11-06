@@ -74,25 +74,29 @@ impl<K, V> Trie<K, V> where K : Copy + Eq + Hash {
 
     /// Returns all keys in trie starting with a given prefix
     pub fn get_keys_for_prefix(&self, prefix : &[K]) -> Vec<Vec<K>> {
-        fn get_strings_rec<K : Eq + Hash + Copy, V>(node : &Node<K, V>, prefix : Vec<K>) -> Vec<Vec<K>> {
+        fn get_strings_rec<K : Eq + Hash + Copy, V>(node : &Node<K, V>, text : &mut Vec<K>, depth : usize) -> Vec<Vec<K>> {
             let mut returned_values = Vec::new();
 
 
             node.get_children().for_each(|(letter, child)| {
-                let mut prefix_for_child = prefix.clone();
-                prefix_for_child.push(*letter);
-                returned_values.extend(get_strings_rec(child, prefix_for_child))
+                if text.len() <= depth {
+                    text.push(*letter);
+                }
+                else {
+                    text[depth] = *letter;
+                }
+                returned_values.extend(get_strings_rec(child, text, depth + 1))
             });
 
             if node.is_end() {
-                returned_values.push(prefix);
+                returned_values.push(text[0..depth].to_vec());
             }
 
             returned_values
         }
 
         if let Some(node) = self.get_node_for_string(prefix) {
-            return get_strings_rec(node, prefix.to_vec());
+            return get_strings_rec(node, &mut prefix.to_vec(), prefix.len());
         }
         else {
             return Vec::new();
