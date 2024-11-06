@@ -31,7 +31,7 @@ impl Loader for InMemoryLoader {
         self.storage.get_for_string(as_slice!(name))
     }
 
-    fn delete(&mut self, name : &String) {
+    fn delete(&mut self, name : &String) -> bool {
         self.storage.delete(as_slice!(name))
     }
     

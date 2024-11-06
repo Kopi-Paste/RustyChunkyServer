@@ -36,26 +36,26 @@ impl<K, V> Trie<K, V> where K : Copy + Eq + Hash {
         self.get_for_string(key).is_some()
     }
 
-    pub fn delete(&mut self, key : &[K]) {
-        fn delete_rec<K : Eq + Hash + Copy, V>(node : &mut Node<K, V>, deleted : &[K]) -> bool {
+    pub fn delete(&mut self, key : &[K]) -> bool {
+        let mut return_value = false;
+        
+        fn delete_rec<K : Eq + Hash + Copy, V>(node : &mut Node<K, V>, deleted : &[K], return_value : &mut bool) -> bool {
             if deleted.is_empty() {
                 node.remove_data();
+                *return_value = true;
                 return true;
             }
             let letter = deleted.first().unwrap();
-            match node.get_opt_mut(letter) {
-                Some(next_node) => {
-                    if delete_rec(next_node, &deleted[1..]){
-                        node.remove_if_possible(letter);
-                        return true;
-                    }
-                    return false;
-                },
-                None => return false
+            if let Some(next_node) = node.get_opt_mut(letter) {
+                if delete_rec(next_node, &deleted[1..], return_value){
+                    return node.remove_if_possible(letter);
+                }
             }
+            return false;
         }
 
-        delete_rec(&mut self.root, key);
+        delete_rec(&mut self.root, key, &mut return_value);
+        return_value
     }
 
 

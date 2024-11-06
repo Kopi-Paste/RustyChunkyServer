@@ -125,8 +125,15 @@ async fn on_delete_handler(
     State(state): State<Arc<RwLock<InMemoryLoader>>>,
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
     println!("DELETE called on {}", path);
-    state.write().await.delete(&path); // find whether something was deleted
-    Ok(())
+    if state.write().await.delete(&path) {
+        Ok(())
+    }
+    else {
+        Err((
+            StatusCode::NOT_FOUND,
+            format!("Path {} does not exist", path),
+        ))
+    }
 }
 
 async fn on_any_handler(
