@@ -9,7 +9,7 @@ use axum::{
     Router,
 };
 use futures::StreamExt;
-use loader::{in_memory_loader::InMemoryLoader, loader_trait::Loader};
+use loader::{in_memory_loader::InMemoryLoader, loader_trait::PrefixLoader};
 use std::{sync::Arc, usize};
 use tokio::sync::RwLock;
 
@@ -18,16 +18,16 @@ mod trie;
 
 #[tokio::main]
 async fn main() {
-    // initialize tracing
     tracing_subscriber::fmt::init();
     let loader = InMemoryLoader::init();
     let shared_state = Arc::new(RwLock::new(loader));
 
-    // build our application with a route
+    // routing
     let app = Router::new()
         .route("/*path", get(on_get_handler))
         .route("/*path", put(on_put_handler))
         .route("/*path", delete(on_delete_handler))
+        // any is for custom method LIST
         .route("/*path", any(on_any_handler))
         .with_state(shared_state);
 
@@ -36,15 +36,16 @@ async fn main() {
     axum::serve(listener, app).await.unwrap();
 }
 
-// basic handler that responds with a static string
 async fn on_get_handler(
     Path(path): Path<String>,
     State(state): State<Arc<RwLock<InMemoryLoader>>>,
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
     println!("GET called on {}", path);
+    // Clones a state (ARC is cheaply clonable) to use in stream
     let state_clone = state.clone();
     let loader = state.read().await;
 
+    // If file does not exist, return 404
     if !loader.exists(&path) {
         return Err((
             StatusCode::NOT_FOUND,
@@ -52,8 +53,10 @@ async fn on_get_handler(
         ));
     }
 
+    // Clone MIME type to send it into response
     let mime = loader.load(&path).unwrap().read().await.get_mime().clone();
 
+    // This createas a stream of data for chunked response
     let stream = stream! {
         let mut sent_bytes = 0 as usize;
         let chunk_size = 8192 as usize;
@@ -62,6 +65,7 @@ async fn on_get_handler(
             if let Some(data) = loader.load(&path) {
                 let len = data.read().await.get_data().len();
                 if sent_bytes + chunk_size > len {
+                    // Final chunk send
                     yield Ok::<_, Error>(Bytes::copy_from_slice(&data.read().await.get_data()[sent_bytes..]));
                     break;
                 }
@@ -69,6 +73,7 @@ async fn on_get_handler(
                 sent_bytes += chunk_size;
             }
             else {
+                // This means data was deleted while streaming, unsure what to do in such sitation
                 break;
             }
         }
@@ -89,26 +94,33 @@ async fn on_put_handler(
     payload: Body,
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
     println!("PUT called on {}", path);
+    // Data stream
     let mut stream = payload.into_data_stream();
+
+    // If mime unset we go with text/plain
     let mime_type = headers
         .get("Content-Type")
         .map_or("text/plain", |header| header.to_str().unwrap());
 
-    let mut writing_lock_guard = state.write().await;
-    writing_lock_guard.insert_new(&path, &mime_type.to_string());
-    drop(writing_lock_guard);
+    // We only need to get the write guard on RW lock when inserting into storage, then only a read lock is enough
+    {
+        let mut writing_lock_guard = state.write().await;
+        writing_lock_guard.insert_new(&path, &mime_type.to_string());
+    }  // Drop writing_lock_guard here
 
     while let Some(chunk) = stream.next().await {
         match chunk {
             Ok(data) => {
                 let writing_lock_guard = state.read().await;
                 if let Some(modified_entry) = writing_lock_guard.load(&path) {
-                    modified_entry.write().await.extend(data);
+                    // Add data from chunk into saved file
+                    modified_entry.write().await.extend(data.to_vec());
                 } else {
                     return Err((StatusCode::GONE, "Uploaded path was deleted".to_string()));
                 }
             }
             Err(e) => {
+                // This could be some error in reading the request
                 println!("Error: {}", e);
                 return Err((
                     StatusCode::INTERNAL_SERVER_ERROR,
