@@ -52,7 +52,8 @@ impl PrefixLoader for InMemoryLoader {
     }
     
     /// Returns all keys starting with given prefix
-    /// This is TODO
+    /// This is O(n) where n is the length of the response
+    /// In context of saved strings this is O(n * l), where n is number of strings and l is the longest string
     fn get_keys_for_prefix(&self, prefix : &String) -> Vec<String> {
         self.storage.get_keys_for_prefix(as_slice!(prefix)).iter().map(|str| String::from_iter(str.iter())).collect()
     }
