@@ -3,14 +3,14 @@ use async_stream::stream;
 use axum::{
     body::{Body, Bytes},
     extract::{path, State},
-    http::{Error, HeaderMap, Method, Response, StatusCode},
+    http::{HeaderMap, Method, Response, StatusCode},
     response::IntoResponse,
     routing::{any, delete, get, put},
     Router,
 };
 use futures::StreamExt;
 use loader::{in_memory_loader::InMemoryLoader, loader_trait::PrefixLoader};
-use std::{sync::Arc, usize};
+use std::{io::{Error, ErrorKind}, sync::Arc, usize};
 use tokio::sync::RwLock;
 
 mod loader;
@@ -73,7 +73,7 @@ async fn on_get_handler(
                 sent_bytes += chunk_size;
             }
             else {
-                // This means data was deleted while streaming, unsure what to do in such sitation
+                yield Err::<_, Error>(Error::new(ErrorKind::BrokenPipe, "Content was deleted"));
                 break;
             }
         }
@@ -149,7 +149,7 @@ async fn on_delete_handler(
 }
 
 async fn on_any_handler(
-    Path(path): Path<String>,
+    Path(mut path): Path<String>,
     method: Method,
     State(state): State<Arc<RwLock<InMemoryLoader>>>,
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
@@ -161,12 +161,27 @@ async fn on_any_handler(
     }
 
     println!("LIST called on {}", path);
-
-    let body_data = state.read().await.get_keys_for_prefix(&path).join("\r\n");
-
-    Ok(Response::builder()
+    
+    if path.ends_with('*') {
+        path.truncate(path.len() - 1);  // Remove the star
+        let body_data = state.read().await.get_keys_for_prefix(&path).join("\r\n");
+        Ok(Response::builder()
         .status(StatusCode::OK)
         .header("Content-Type", "text/plain")
         .body(Body::from(body_data))
         .unwrap())
+    } else if state.read().await.exists(&path) {
+        let body_data = path;   
+        Ok(Response::builder()
+        .status(StatusCode::OK)
+        .header("Content-Type", "text/plain")
+        .body(Body::from(body_data))
+        .unwrap())
+    }
+    else {
+        Err((
+            StatusCode::NOT_FOUND,
+            "Given path does not exist, end path with * to enable prefix search".to_string(),
+        ))
+    }
 }
